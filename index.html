@@ -157,13 +157,7 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke
 .paper{flex:1;min-height:0;display:flex;flex-direction:column;position:relative;background:var(--surface)}
 .paper.enter{animation:fadeRise .36s var(--ease)}
 @keyframes fadeRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-.diary-date{
-  display:inline-flex;align-items:center;gap:4px;margin:18px 22px 2px;
-  font-size:21px;font-weight:700;color:var(--text);letter-spacing:.02em;
-  cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;transition:color .15s
-}
-.diary-date:active{color:var(--accent)}
-.diary-date .caret{width:16px;height:16px;fill:none;stroke:var(--muted);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;opacity:.7}
+.diary-date{display:none !important}
 .meta-line{
   padding:2px 22px 8px;font-size:12px;color:var(--muted);
   display:flex;gap:10px;flex-wrap:wrap;align-items:center;min-height:0
@@ -605,10 +599,6 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 
   <main class="stage">
     <div class="paper" id="paper">
-      <div class="diary-date" id="dateTitle" data-act="datepick" aria-label="选择日期">
-        <span id="dateTitleText"></span>
-        <svg class="caret" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
-      </div>
       <div class="meta-line" id="metaLine"></div>
       <textarea id="editor" spellcheck="false" autocapitalize="sentences"
         placeholder="今天……"></textarea>
@@ -745,10 +735,6 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
   function parseYmd(s) { var a = s.split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); }
   var WK = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-  function dateTitleText(ds) {
-    var d = parseYmd(ds);
-    return ds.replace(/-/g, '.') + ' ' + WK[d.getDay()];
-  }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -1073,9 +1059,6 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     var e = S.cur; if (!e) return;
     var d = parseYmd(e.date), today = ymd(new Date());
     var isToday = e.date === today;
-
-    var dt = $('#dateTitleText');
-    if (dt) dt.textContent = dateTitleText(e.date);
 
     // 元信息行
     var parts = [];
@@ -2403,7 +2386,6 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
         toast('缓存已清，下次打开取最新版');
         break;
 
-      case 'datepick': openDatePick(S.cur ? S.cur.date : ymd(new Date())); break;
       case 'datepick-confirm': confirmDatePick(); break;
       case 'datepick-cancel': closeDatePick(); break;
       case 'new': closeDrawer(); openDatePick(ymd(new Date())); break;
