@@ -190,20 +190,30 @@ html[data-typewriter="off"] #editor{padding-bottom:24px}
 
 /* ===================== 底栏 ===================== */
 .attach-strip{
-  flex:0 0 auto;display:flex;gap:8px;overflow-x:auto;padding:0 18px;
-  -webkit-overflow-scrolling:touch;scrollbar-width:none
+  flex:0 0 auto;display:flex;gap:10px;overflow-x:auto;padding:10px 18px 12px;
+  -webkit-overflow-scrolling:touch;scrollbar-width:none;
+  border-top:1px solid var(--line);
+  background:rgba(255,250,240,.6)
 }
 .attach-strip::-webkit-scrollbar{display:none}
-.attach-strip:not(:empty){padding-bottom:10px}
+.attach-strip:not(:empty){margin-bottom:2px}
 .thumb{position:relative;flex:0 0 auto}
-.thumb img{width:56px;height:56px;object-fit:cover;border-radius:10px;display:block;border:1px solid var(--line)}
+.thumb img{width:64px;height:64px;object-fit:cover;border-radius:10px;display:block;border:1px solid var(--line);background:var(--bg)}
 .thumb .x{
   position:absolute;top:-7px;right:-7px;width:22px;height:22px;padding:0;border:2px solid var(--bg);
   border-radius:50%;background:#e5484d;color:#fff;font-size:14px;line-height:1;
   display:flex;align-items:center;justify-content:center;box-sizing:border-box;
-  box-shadow:0 1px 4px rgba(0,0,0,.32);cursor:pointer;z-index:2;-webkit-appearance:none;appearance:none
+  box-shadow:0 1px 4px rgba(0,0,0,.32);cursor:pointer;z-index:3;-webkit-appearance:none;appearance:none
 }
 .thumb .x:active{transform:scale(.9)}
+.thumb .num{
+  position:absolute;left:-6px;bottom:-6px;min-width:20px;height:20px;padding:0 6px;
+  border-radius:10px;background:var(--accent);color:#fff;
+  font-size:11px;font-weight:700;line-height:20px;text-align:center;
+  box-sizing:border-box;box-shadow:0 1px 3px rgba(0,0,0,.3);
+  border:1.5px solid var(--bg);z-index:2;letter-spacing:.02em;
+  font-family:-apple-system,"Helvetica Neue",Arial,sans-serif
+}
 .bottombar{
   flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
   gap:8px;padding:6px 10px calc(4px + var(--safe-b));border-top:1px solid var(--line);
@@ -1117,9 +1127,13 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     var host = $('#attachStrip'); if (!host) return;
     var e = S.cur;
     if (!e || !e.imgs || !e.imgs.length) { host.innerHTML = ''; return; }
-    host.innerHTML = e.imgs.map(function (id) {
-      return '<div class="thumb" data-img="' + id + '"><img alt="" data-act="view-img" data-id="' + id + '">' +
-        (isLocked(e) ? '' : '<button type="button" class="x" data-act="del-img" data-id="' + id + '" aria-label="删除这张图片" title="删除这张图片">×</button>') + '</div>';
+    host.innerHTML = e.imgs.map(function (id, idx) {
+      var n = idx + 1;
+      return '<div class="thumb" data-img="' + id + '" data-num="' + n + '">' +
+        '<img alt="" data-act="view-img" data-id="' + id + '">' +
+        '<span class="num" aria-label="这是第' + n + '张图片（共' + e.imgs.length + '张）">图' + n + '</span>' +
+        (isLocked(e) ? '' : '<button type="button" class="x" data-act="del-img" data-id="' + id + '" aria-label="删除第' + n + '张图片" title="删除第' + n + '张图片">×</button>') +
+        '</div>';
     }).join('');
     e.imgs.forEach(function (id) {
       loadBlob(id).then(function (src) {
