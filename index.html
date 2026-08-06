@@ -218,6 +218,16 @@ html[data-typewriter="off"] #editor{padding-bottom:24px}
   border:1.5px solid var(--bg);z-index:2;letter-spacing:.02em;
   font-family:-apple-system,"Helvetica Neue",Arial,sans-serif
 }
+/* ---- 拖拽排序 ---- */
+.thumb{transition:transform .18s var(--ease-soft),opacity .18s var(--ease-soft)}
+.thumb img{-webkit-user-drag:none;user-select:none;-webkit-user-select:none}
+.attach-strip.dragmode{touch-action:none;overflow-x:hidden}
+.attach-strip.dragmode .thumb:not(.dragging){opacity:.55}
+.thumb.dragging{
+  transform:scale(1.14);opacity:.95;z-index:6;
+  box-shadow:0 6px 18px rgba(0,0,0,.28);border-radius:12px
+}
+.thumb.dragging img{border-color:var(--accent)}
 .bottombar{
   flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;
   gap:6px;padding:6px 10px calc(4px + var(--safe-b));border-top:1px solid var(--line);
@@ -1005,41 +1015,173 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   }
 
   /* ---------------- 图片 ---------------- */
+  var MAX_IMGS = 20;
   function shrink(file) {
     return new Promise(function (res, rej) {
+      var done = false;
+      function finish(v) { if (!done) { done = true; clearTimeout(timer); res(v); } }
+      // 单张兜底超时：某些图片（损坏/特殊 HEIC）解码时 onload 与 onerror 都不触发，
+      // 若不设超时会让 await 永久挂起，整批后续图片全部丢失。
+      var timer = setTimeout(function () { finish(null); }, 15000);
       var fr = new FileReader();
       fr.onload = function () {
         var img = new Image();
         img.onload = function () {
           try {
             var max = 1280, w = img.width, h = img.height;
+            if (!w || !h) return finish(fr.result);
             if (w > max || h > max) { var r = Math.min(max / w, max / h); w = Math.round(w * r); h = Math.round(h * r); }
             var c = document.createElement('canvas'); c.width = w; c.height = h;
             c.getContext('2d').drawImage(img, 0, 0, w, h);
-            res(c.toDataURL('image/jpeg', 0.82));
-          } catch (e) { res(fr.result); }
+            finish(c.toDataURL('image/jpeg', 0.82));
+          } catch (e) { finish(fr.result); }
         };
-        img.onerror = function () { res(fr.result); };
+        img.onerror = function () { finish(fr.result); };
         img.src = fr.result;
       };
-      fr.onerror = rej;
-      fr.readAsDataURL(file);
+      fr.onerror = function () { if (!done) { done = true; clearTimeout(timer); rej(fr.error || new Error('read fail')); } };
+      try { fr.readAsDataURL(file); } catch (e) { if (!done) { done = true; clearTimeout(timer); rej(e); } }
     });
   }
   async function addImages(files) {
-    if (!S.cur) return;
-    for (var i = 0; i < files.length && i < 9; i++) {
-      var f = files[i]; if (!f || !/^image\//.test(f.type)) continue;
+    if (!S.cur) return 0;
+    // 防御性快照：调用方若传入 live FileList，await 之后长度可能被清零。
+    var list = Array.prototype.slice.call(files || []);
+    S.cur.imgs = S.cur.imgs || [];
+    var room = MAX_IMGS - S.cur.imgs.length;
+    if (room <= 0) { toast('最多 ' + MAX_IMGS + ' 张图片'); return 0; }
+
+    var added = 0, failed = 0, skipped = 0;
+    for (var i = 0; i < list.length; i++) {
+      if (added >= room) { skipped = list.length - i; break; }
+      var f = list[i];
+      if (!f || !/^image\//.test(f.type || '')) { failed++; continue; }
       try {
         var data = await shrink(f);
+        if (!data) { failed++; continue; }
         var id = uid();
         await Store.put('blobs', { id: id, data: data });
-        S.cur.imgs = S.cur.imgs || [];
         S.cur.imgs.push(id);
-      } catch (e) { console.error('[img]', e); }
+        added++;
+        renderAttach();   // 增量刷新，多图时能看到逐张进入
+      } catch (e) { failed++; console.error('[img]', e); }
     }
+
     await saveNow(true);
     renderAttach();
+    if (added) {
+      var msg = added > 1 ? ('已添加 ' + added + ' 张图片') : '图片已附上';
+      if (failed) msg += '，' + failed + ' 张失败';
+      if (skipped) msg += '，' + skipped + ' 张超出上限';
+      toast(msg);
+    } else if (failed) {
+      toast('图片添加失败');
+    }
+    return added;
+  }
+
+  /* ---- 拖拽排序：长按缩略图后左右拖动交换位置 ---- */
+  function reorderImgs(fromId, toId) {
+    var e = S.cur; if (!e || !e.imgs) return false;
+    var a = e.imgs.indexOf(fromId), b = e.imgs.indexOf(toId);
+    if (a < 0 || b < 0 || a === b) return false;
+    e.imgs.splice(a, 1);
+    e.imgs.splice(b, 0, fromId);
+    saveNow(true);
+    renderAttach();
+    return true;
+  }
+  function applyOrder(ids) {
+    var e = S.cur; if (!e || !e.imgs) return false;
+    if (ids.length !== e.imgs.length) return false;
+    var same = true;
+    for (var i = 0; i < ids.length; i++) { if (e.imgs.indexOf(ids[i]) < 0) return false; if (ids[i] !== e.imgs[i]) same = false; }
+    if (same) return false;
+    e.imgs = ids;
+    saveNow(true);
+    renderAttach();
+    return true;
+  }
+  function initThumbDrag() {
+    var host = $('#attachStrip'); if (!host) return;
+    var st = null;
+
+    function pt(ev) { return (ev.touches && ev.touches[0]) || (ev.changedTouches && ev.changedTouches[0]) || ev; }
+    function thumbs() { return Array.prototype.slice.call(host.querySelectorAll('.thumb')); }
+    function cleanup() {
+      if (!st) return;
+      clearTimeout(st.timer);
+      if (st.el) st.el.classList.remove('dragging');
+      host.classList.remove('dragmode');
+      st = null;
+    }
+
+    function onDown(ev) {
+      if (st) cleanup();
+      var t = ev.target;
+      var th = t && t.closest ? t.closest('.thumb') : null;
+      if (!th) return;
+      if (t.closest('[data-act="del-img"]')) return;   // 删除按钮不参与拖拽
+      if (S.cur && isLocked(S.cur)) return;
+      if (thumbs().length < 2) return;                  // 单张无需排序
+      var p = pt(ev);
+      st = { el: th, id: th.getAttribute('data-img'), x0: p.clientX, y0: p.clientY, active: false, timer: null };
+      st.timer = setTimeout(function () {
+        if (!st) return;
+        st.active = true;
+        st.el.classList.add('dragging');
+        host.classList.add('dragmode');
+        try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) { }
+      }, 220);
+    }
+
+    function onMove(ev) {
+      if (!st) return;
+      var p = pt(ev);
+      if (!st.active) {
+        // 长按未成立就先移动 → 视为滚动手势，放弃拖拽
+        if (Math.abs(p.clientX - st.x0) > 8 || Math.abs(p.clientY - st.y0) > 8) cleanup();
+        return;
+      }
+      if (ev.cancelable) ev.preventDefault();
+      var list = thumbs(), target = null;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i] === st.el) continue;
+        var r = list[i].getBoundingClientRect();
+        if (p.clientX >= r.left && p.clientX <= r.right) { target = list[i]; break; }
+      }
+      if (!target) return;
+      var a = list.indexOf(st.el), b = list.indexOf(target);
+      if (a < b) host.insertBefore(st.el, target.nextSibling);
+      else host.insertBefore(st.el, target);
+    }
+
+    var suppressClick = false;
+    function onUp() {
+      if (!st) return;
+      var wasActive = st.active;
+      cleanup();
+      if (!wasActive) return;
+      // 拖拽刚结束，抑制随之而来的 click，避免误打开大图预览
+      suppressClick = true;
+      setTimeout(function () { suppressClick = false; }, 350);
+      var ids = thumbs().map(function (t) { return t.getAttribute('data-img'); });
+      if (applyOrder(ids)) toast('图片顺序已更新');
+      else renderAttach();
+    }
+    host.addEventListener('click', function (ev) {
+      if (!suppressClick) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+    }, true);
+
+    host.addEventListener('touchstart', onDown, { passive: true });
+    host.addEventListener('touchmove', onMove, { passive: false });
+    host.addEventListener('touchend', onUp);
+    host.addEventListener('touchcancel', onUp);
+    host.addEventListener('mousedown', onDown);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   }
   var blobCache = {};
   function loadBlob(id) {
@@ -1142,8 +1284,8 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     if (!e || !e.imgs || !e.imgs.length) { host.innerHTML = ''; return; }
     host.innerHTML = e.imgs.map(function (id, idx) {
       var n = idx + 1;
-      return '<div class="thumb" data-img="' + id + '" data-num="' + n + '">' +
-        '<img alt="" data-act="view-img" data-id="' + id + '">' +
+      return '<div class="thumb" data-img="' + id + '" data-num="' + n + '" title="长按可拖动排序">' +
+        '<img alt="" data-act="view-img" data-id="' + id + '" draggable="false">' +
         '<span class="num" aria-label="这是第' + n + '张图片（共' + e.imgs.length + '张）">图' + n + '</span>' +
         (isLocked(e) ? '' : '<button type="button" class="x" data-act="del-img" data-id="' + id + '" aria-label="删除第' + n + '张图片" title="删除第' + n + '张图片">×</button>') +
         '</div>';
@@ -2517,10 +2659,18 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       for (var i = 0; i < items.length; i++) {
         if (items[i].kind === 'file' && /^image\//.test(items[i].type)) { var f = items[i].getAsFile(); if (f) files.push(f); }
       }
-      if (files.length) { e.preventDefault(); addImages(files); toast('图片已附上'); }
+      if (files.length) { e.preventDefault(); addImages(files); }
     });
+    initThumbDrag();
     var fp = $('#filePicker');
-    if (fp) fp.addEventListener('change', function () { if (fp.files && fp.files.length) { addImages(fp.files); fp.value = ''; } });
+    if (fp) fp.addEventListener('change', function () {
+      if (!fp.files || !fp.files.length) return;
+      // 关键：FileList 是实时引用，必须先快照成数组，再清空 input，
+      // 否则 addImages 在 await 让出控制权后 files.length 会变 0，只存下第一张。
+      var list = Array.prototype.slice.call(fp.files);
+      fp.value = '';
+      addImages(list);
+    });
   }
 
   function boot2() {
@@ -2564,7 +2714,11 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   }
 
   /* 供调试 */
-  window.__shiguang = { S: S, Cfg: Cfg, Store: Store, openDay: openDay, openDayByDate: openDay, saveNow: saveNow, words: words, addImages: addImages };
+  window.__shiguang = {
+    S: S, Cfg: Cfg, Store: Store, openDay: openDay, openDayByDate: openDay,
+    saveNow: saveNow, words: words, addImages: addImages,
+    reorderImgs: reorderImgs, applyOrder: applyOrder, renderAttach: renderAttach, MAX_IMGS: MAX_IMGS
+  };
 })();
 </script>
 </body>
