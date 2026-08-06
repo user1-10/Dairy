@@ -954,7 +954,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       .replace(/`([^`\n]+)`/g, '<code>$1</code>')
       .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
       .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
-      .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, function (m, t, u) { return '<a href="' + u.replace(/&amp;/g, '&') + '" target="_blank" rel="noopener">' + t + '</a>'; });
     t = t.replace(/(<li>[\s\S]*?<\/li>)(?![\s\S]*?<li>)/, function (x) { return x; });
     t = t.replace(/(?:<li>.*<\/li>\n?)+/g, function (x) { return '<ul>' + x + '</ul>'; });
     t = t.replace(TAG_RE, '<span class="tag-inline">$1$2</span>');
@@ -1201,7 +1201,9 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     if (!e) {
       var base = parseYmd(dateStr);
       var now = new Date();
-      var ts = (dateStr === ymd(now)) ? now.getTime() : base.getTime() + 12 * 3600000;
+      // 新建条目的 created 一律取「此刻」，而非所选日期。
+      // 否则回填到过去日期的日记会被立刻判为「已封存」而锁死，导致无法书写（与「新建日记可指定日期」矛盾）。
+      var ts = now.getTime();
       e = { id: uid(), date: dateStr, created: ts, updated: ts, text: '', mood: 0, imgs: [], annos: [], type: 'day', saved: false };
       S.entries.push(e); sortEntries();
     }
@@ -1245,9 +1247,10 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
         '<div class="locked-text md">' + (e.text ? mdRender(e.text) : '<span style="color:var(--muted)">（这一天是空白的）</span>') + '</div>' +
         renderAnnos(e) +
         '<textarea class="anno-add" id="annoInput" placeholder="现在的你想说点什么…"></textarea>' +
-        '<div style="text-align:right"><button class="solid-btn" data-act="anno-save">写下批注</button></div>';
+        '<div style="text-align:right"><button class="solid-btn" data-act="anno-save" data-id="' + e.id + '">写下批注</button></div>';
     } else {
       box.classList.add('hidden'); ta.classList.remove('hidden');
+      box.innerHTML = '';   // 清除旧锁定态残留的批注按钮，避免隐藏容器内残留可点击元素被 querySelector 误命中
       if (ta.value !== (e.text || '')) ta.value = e.text || '';
       if (e.annos && e.annos.length) { /* 未锁定但已有批注：并入正文下方不显示，保持简洁 */ }
     }
@@ -1717,7 +1720,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       '</div>';
 
     h += '<div style="text-align:center;color:var(--muted);font-size:11.5px;line-height:1.8;padding:6px 0 20px">' +
-      '日记 · v1.6<br>字体、字号、加粗在编辑页右下「Aa」里设置<br>数据全部保存在这台设备上，不联网、不上传<br>建议每月导出一次备份</div>';
+      '日记 · v2.3<br>字体、字号、加粗在编辑页右下「Aa」里设置<br>数据全部保存在这台设备上，不联网、不上传<br>建议每月导出一次备份</div>';
     openSheet('设置', h);
   }
 
@@ -2171,7 +2174,14 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
         var jobs = [];
         d.entries.forEach(function (e) {
           if (byId(e.id)) return;
-          e.saved = true; S.entries.push(e); jobs.push(Store.put('entries', strip(e)));
+          e.saved = true;
+          // 归一化：保证必要字段存在，缺失标签时从正文重新解析，避免导入残缺备份后渲染/逻辑崩溃
+          e.imgs = e.imgs || []; e.annos = e.annos || []; e.mood = e.mood || 0; e.type = e.type || 'day';
+          if (!e.people && !e.places) {
+            var tg = extractTags(e.text || '');
+            e.people = tg.people; e.places = tg.places;
+          } else { e.people = e.people || []; e.places = e.places || []; }
+          S.entries.push(e); jobs.push(Store.put('entries', strip(e)));
         });
         (d.blobs || []).forEach(function (b) { jobs.push(Store.put('blobs', b)); });
         if (d.cfg) {
@@ -2717,7 +2727,11 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   window.__shiguang = {
     S: S, Cfg: Cfg, Store: Store, openDay: openDay, openDayByDate: openDay,
     saveNow: saveNow, words: words, addImages: addImages,
-    reorderImgs: reorderImgs, applyOrder: applyOrder, renderAttach: renderAttach, MAX_IMGS: MAX_IMGS
+    reorderImgs: reorderImgs, applyOrder: applyOrder, renderAttach: renderAttach, MAX_IMGS: MAX_IMGS,
+    doImport: doImport, doExportJSON: doExportJSON, openSearch: openSearch, doSearch: doSearch,
+    openInsight: openInsight, openGoals: openGoals, openSettings: openSettings, openRead: openRead,
+    openFlash: openFlash, closeFlash: closeFlash, bottle: bottle, showLock: showLock, submitPin: submitPin,
+    hashPin: hashPin, openDrawer: openDrawer, refreshSide: refreshSide
   };
 })();
 </script>
