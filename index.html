@@ -159,10 +159,14 @@ svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.7;stroke
 @keyframes fadeRise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 .diary-date{display:none !important}
 .meta-line{
-  padding:2px 22px 8px;font-size:12px;color:var(--muted);
-  display:flex;gap:10px;flex-wrap:wrap;align-items:center;min-height:0
+  padding:6px 22px 8px;font-size:12px;color:var(--muted);
+  display:flex;gap:12px;align-items:center;min-height:0;
+  flex-wrap:wrap;
 }
+.meta-line .meta-tags{display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:1;min-width:0}
+.meta-line .meta-tags .meta-empty{opacity:.5;font-style:italic}
 .meta-line .dot{opacity:.4}
+.meta-line .moods{gap:1px;flex:0 0 auto}
 #editor{
   flex:1;min-height:0;width:100%;border:0;outline:0;resize:none;background:transparent;
   padding:0 22px calc(45vh) 22px; font-size:var(--diary-size); line-height:2.0; letter-spacing:.01em;
@@ -215,15 +219,19 @@ html[data-typewriter="off"] #editor{padding-bottom:24px}
   font-family:-apple-system,"Helvetica Neue",Arial,sans-serif
 }
 .bottombar{
-  flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;
-  gap:8px;padding:6px 10px calc(4px + var(--safe-b));border-top:1px solid var(--line);
+  flex:0 0 auto;display:flex;align-items:center;justify-content:flex-end;
+  gap:6px;padding:6px 10px calc(4px + var(--safe-b));border-top:1px solid var(--line);
   background:var(--bg)
 }
 .moods{display:flex;gap:2px}
-.mood{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%;opacity:.32;transition:opacity .2s var(--ease-soft),transform .2s var(--ease-soft)}
+.mood{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%;opacity:.32;transition:opacity .2s var(--ease-soft),transform .2s var(--ease-soft);cursor:pointer;background:transparent;border:0}
 .mood svg{width:23px;height:23px;stroke-width:1.5}
 .mood.on{opacity:1;transform:scale(1.12);color:var(--accent)}
-.tools{display:flex;gap:0;align-items:center}
+/* 顶部 meta-line 内的心情：略小，紧凑 */
+.meta-line .mood{width:32px;height:32px}
+.meta-line .mood svg{width:20px;height:20px}
+.meta-line .mood.on{color:var(--accent);opacity:1;transform:scale(1.08)}
+.tools{display:flex;gap:2px;align-items:center;justify-content:space-between;width:100%}
 .save-btn{
   width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;
   border-radius:12px;border:1px solid transparent;cursor:pointer;color:var(--text2);
@@ -612,7 +620,10 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 
   <main class="stage">
     <div class="paper" id="paper">
-      <div class="meta-line" id="metaLine"></div>
+      <div class="meta-line">
+        <div class="meta-tags" id="metaLine"></div>
+        <div class="moods" id="moods"></div>
+      </div>
       <textarea id="editor" spellcheck="false" autocapitalize="sentences"
         placeholder="今天……"></textarea>
       <div id="lockedBox" class="locked-box hidden"></div>
@@ -622,7 +633,6 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   <div class="attach-strip" id="attachStrip"></div>
 
   <footer class="bottombar">
-    <div class="moods" id="moods"></div>
     <div class="tools">
       <button class="save-btn" id="saveBtn" data-act="save" aria-label="保存日记">
         <svg viewBox="0 0 24 24"><path d="M5 3h11l3 3v15H5z"></path><path d="M8 3v6h7"></path><path d="M8.5 14.5l2.5 2.5 4.5-4.5"></path></svg>
@@ -1080,6 +1090,9 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     tg.people.slice(0, 4).forEach(function (x) { parts.push('@' + x); });
     tg.places.slice(0, 3).forEach(function (x) { parts.push('#' + x); });
     $('#metaLine').innerHTML = parts.map(function (p) { return '<span>' + esc(p) + '</span>'; }).join('<span class="dot">·</span>');
+    // 当没有任何 meta 信息（无天气/无标签）时显示淡提示，避免整行空着看起来单调
+    var mlWrap = document.querySelector('.meta-line .meta-tags');
+    if (mlWrap && !parts.length) mlWrap.innerHTML = '<span class="meta-empty">写点什么吧</span>';
 
     var locked = isLocked(e);
     var ta = $('#editor'), box = $('#lockedBox');
@@ -2240,7 +2253,12 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     switch (act) {
       case 'drawer': openDrawer(); break;
       case 'close-drawer': closeDrawer(); break;
-      case 'cat-open': openCat(); break;
+      case 'cat-open':
+        // 点击同一个按钮再次打开 → 收起；外部点击已在 document 上统一处理
+        var _cm = document.getElementById('catMenu');
+        if (_cm && _cm.classList.contains('show')) { closeCat(); }
+        else { openCat(); }
+        break;
       case 'cat-close': closeCat(); break;
       case 'cat':
         S.cat = v || null;
@@ -2546,7 +2564,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   }
 
   /* 供调试 */
-  window.__shiguang = { S: S, Cfg: Cfg, Store: Store, openDay: openDay, saveNow: saveNow, words: words };
+  window.__shiguang = { S: S, Cfg: Cfg, Store: Store, openDay: openDay, openDayByDate: openDay, saveNow: saveNow, words: words, addImages: addImages };
 })();
 </script>
 </body>
