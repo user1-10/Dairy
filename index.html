@@ -796,7 +796,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   'use strict';
 
   /* 版本号：改功能就改这里，设置页底部会显示，用来核对「本地版 / 线上版」是否一致 */
-  var APP_VER = 'v2.6';
+  var APP_VER = 'v2.7';
   window.__SHIGUANG_VER__ = APP_VER;
 
   /* ---------------- 基础工具 ---------------- */
@@ -2733,11 +2733,21 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
         break;
       }
       case 'reset-sw':
+        // 先存盘，避免硬刷新丢未保存的文字（日记存在 IndexedDB，清缓存不动它，但防万一）
+        try { saveNow(true); } catch (e) {}
+        // 注销所有已安装的 SW + 清空 Cache Storage（SW 缓存的应用外壳）
         if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
           navigator.serviceWorker.getRegistrations().then(function (rs) { rs.forEach(function (r) { r.unregister(); }); });
         }
         if (window.caches && caches.keys) caches.keys().then(function (ks) { ks.forEach(function (k) { caches['delete'](k); }); });
-        toast('缓存已清，下次打开取最新版');
+        toast('正在取最新版…');
+        // 关键：用带时间戳的 URL 硬刷新，绕过浏览器 HTTP 缓存。
+        // GitHub Pages 给 index.html 设了 max-age=600，旧副本会一直躺在磁盘缓存里，
+        // 只清 SW / 应用缓存没用，必须让浏览器重新向服务器要一次。
+        setTimeout(function () {
+          var sep = (location.search && location.search.length) ? '&' : '?';
+          window.location.href = location.pathname + sep + '_=' + Date.now();
+        }, 250);
         break;
 
       case 'datepick-confirm': confirmDatePick(); break;

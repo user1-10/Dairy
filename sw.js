@@ -11,7 +11,7 @@
  */
 // 每次发布必须 +1：缓存名变化会让 activate 阶段删掉所有旧缓存，
 // 已安装的 PWA 才会真正换成新版外壳（否则用户一直看到老版本）。
-const CACHE = 'diary-v6';
+const CACHE = 'diary-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -52,9 +52,11 @@ self.addEventListener('fetch', function (e) {
   if (/\/sw\.js$/.test(url.pathname)) return;
 
   // 导航请求：网络优先 + 离线回退
+  // 注意：必须 cache:'reload' 绕过浏览器 HTTP 缓存（GitHub Pages 给 index.html
+  // 设了 max-age=600），否则旧副本会一直从磁盘缓存返回，用户"清缓存"也救不回来。
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req).then(function (r) {
+      fetch(req, { cache: 'reload' }).then(function (r) {
         if (r && r.status === 200) {
           caches.open(CACHE).then(function (c) { c.put('./index.html', r.clone()); });
         }
