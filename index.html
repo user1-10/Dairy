@@ -220,6 +220,7 @@ html[data-typewriter="off"] #editor{padding-bottom:24px}
 }
 /* ---- 拖拽排序 ---- */
 .thumb{transition:transform .18s var(--ease-soft),opacity .18s var(--ease-soft)}
+.thumb.removing{opacity:0;transform:scale(.82);pointer-events:none}
 .thumb img{-webkit-user-drag:none;user-select:none;-webkit-user-select:none}
 .attach-strip.dragmode{touch-action:none;overflow-x:hidden}
 .attach-strip.dragmode .thumb:not(.dragging){opacity:.55}
@@ -261,7 +262,9 @@ html[data-typewriter="off"] #editor{padding-bottom:24px}
 .statusline.show{opacity:1}
 
 /* ===================== 抽屉 ===================== */
-.scrim{position:fixed;inset:0;background:rgba(20,16,10,.32);z-index:40;backdrop-filter:blur(2px)}
+.scrim{position:fixed;inset:0;background:rgba(20,16,10,.32);z-index:40;backdrop-filter:blur(2px);
+  opacity:0;visibility:hidden;transition:opacity .3s var(--ease),visibility .3s var(--ease)}
+.scrim.show{opacity:1;visibility:visible}
 .drawer{
   position:fixed;top:0;bottom:0;left:0;width:min(84vw,340px);z-index:50;
   background:var(--bg);border-right:1px solid var(--line);
@@ -350,9 +353,15 @@ html[data-typewriter="off"] #editor{padding-bottom:24px}
 /* ===================== 全屏页 ===================== */
 .sheet{
   position:fixed;inset:0;z-index:60;background:var(--bg);display:flex;flex-direction:column;
-  padding-top:var(--safe-t);animation:slideUp .34s var(--ease)
+  padding-top:var(--safe-t)
 }
-@keyframes slideUp{from{transform:translateY(20px) scale(.99);opacity:0}to{transform:none;opacity:1}}
+.sheet.enter{animation:slideUp .36s var(--ease)}
+.sheet.closing{animation:slideDown .3s var(--ease) forwards}
+@keyframes slideUp{from{transform:translateY(22px) scale(.985);opacity:0}to{transform:none;opacity:1}}
+@keyframes slideDown{from{transform:none;opacity:1}to{transform:translateY(22px) scale(.985);opacity:0}}
+/* 面板滑入后内容轻浮起，层次更自然 */
+.sheet.enter .sheet-body{animation:bodyIn .42s var(--ease) .06s both}
+@keyframes bodyIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .sheet-head{display:flex;align-items:center;gap:8px;height:50px;padding:0 8px;border-bottom:1px solid var(--line)}
 .sheet-title{flex:1;font-size:15px;font-weight:600;text-align:center}
 .sheet-extra{min-width:40px;display:flex;justify-content:flex-end;padding-right:6px}
@@ -479,8 +488,12 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 .veil{position:fixed;inset:0;z-index:95;background:var(--bg);
   backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);
   display:flex;align-items:center;justify-content:center;font-size:20px;letter-spacing:.2em;color:var(--muted)}
-.viewer{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;padding:20px}
-.viewer img{max-width:100%;max-height:100%;border-radius:8px}
+.viewer{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.94);display:flex;align-items:center;justify-content:center;padding:20px;
+  opacity:0;visibility:hidden;transition:opacity .26s var(--ease),visibility .26s var(--ease)}
+.viewer.show{opacity:1;visibility:visible}
+.viewer img{max-width:100%;max-height:100%;border-radius:8px;
+  transform:scale(.92);opacity:0;transition:transform .3s var(--ease-soft),opacity .3s var(--ease-soft)}
+.viewer.show img{transform:scale(1);opacity:1}
 .toast{
   position:fixed;left:50%;bottom:calc(96px + var(--safe-b));transform:translate(-50%,10px);
   background:var(--text);color:var(--bg);font-size:13px;padding:9px 16px;border-radius:99px;
@@ -679,7 +692,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 </div>
 
 <!-- ============ 抽屉 ============ -->
-<div id="scrim" class="scrim hidden" data-act="close-drawer"></div>
+<div id="scrim" class="scrim" data-act="close-drawer"></div>
 <aside id="drawer" class="drawer">
   <div class="drawer-head">
     <div class="brand">日记</div>
@@ -744,7 +757,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 </div>
 
 <!-- ============ 图片查看 ============ -->
-<div id="viewer" class="viewer hidden" data-act="close-viewer"><img id="viewerImg" alt=""></div>
+<div id="viewer" class="viewer" data-act="close-viewer"><img id="viewerImg" alt=""></div>
 
 <!-- ============ 轻提示 ============ -->
 <div id="toast" class="toast"></div>
@@ -1461,19 +1474,35 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   }
 
   /* ---------------- 抽屉 ---------------- */
-  function openDrawer() { $('#drawer').classList.add('open'); $('#scrim').classList.remove('hidden'); refreshSide(); }
-  function closeDrawer() { $('#drawer').classList.remove('open'); $('#scrim').classList.add('hidden'); }
+  function openDrawer() { $('#drawer').classList.add('open'); $('#scrim').classList.add('show'); refreshSide(); }
+  function closeDrawer() { $('#drawer').classList.remove('open'); $('#scrim').classList.remove('show'); }
 
   /* ---------------- 全屏页 ---------------- */
   var sheetState = null;
   function openSheet(title, html, extraHtml) {
+    var s = $('#sheet');
+    s.classList.remove('closing', 'enter');
+    s.classList.add('enter');      // 先加 enter（此时仍 hidden，动画不跑）
+    s.classList.remove('hidden');  // 再显示，入场动画从初始态开始，避免先显后隐的闪烁
     $('#sheetTitle').textContent = title;
     $('#sheetBody').innerHTML = html;
     $('#sheetExtra').innerHTML = extraHtml || '';
-    $('#sheet').classList.remove('hidden');
     $('#sheetBody').scrollTop = 0;
   }
-  function closeSheet() { $('#sheet').classList.add('hidden'); sheetState = null; }
+  function closeSheet() {
+    var s = $('#sheet');
+    if (!s || s.classList.contains('hidden') || s.classList.contains('closing')) return;
+    s.classList.remove('enter');
+    s.classList.add('closing');
+    var done = function () {
+      if (!s.classList.contains('closing')) return; // 动画期间被重新打开则放弃收尾
+      s.classList.add('hidden');
+      s.classList.remove('closing');
+      sheetState = null;
+    };
+    s.addEventListener('animationend', done, { once: true });
+    setTimeout(done, 360);
+  }
 
   /* ---- 阅读 ---- */
   function openRead(id) {
@@ -2157,7 +2186,8 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       });
 
       var blob = zipStore(files, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-      exSaveBlob(blob, '日记-' + ymd(new Date()) + '.docx');
+      try { exSaveBlob(blob, '日记-' + ymd(new Date()) + '.docx'); }
+      catch (e) { console.warn('[export-word-download]', e); }
       closeSheet();
       toast('已导出 ' + list.length + ' 篇为 Word');
     })['catch'](function (err) {
@@ -2200,6 +2230,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 
   /* ---------------- 漂流瓶 ---------------- */
   function bottle(auto) {
+    if (auto && (sheetState || $('#drawer').classList.contains('open'))) return; // 自动漂流瓶不打扰正在操作的用户
     var pool = S.entries.filter(function (e) {
       return e.saved !== false && (e.text || '').trim().length > 12 && (Date.now() - e.created) > 7 * DAY;
     });
@@ -2449,16 +2480,22 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       case 'pick-image': $('#filePicker').click(); break;
       case 'del-img':
         if (!S.cur) break;
-        S.cur.imgs = (S.cur.imgs || []).filter(function (x) { return x !== id; });
-        Store.del('blobs', id); saveNow(true); renderAttach();
+        (function () {
+          var th = $('.attach-strip [data-img="' + id + '"]');
+          var finish = function () {
+            S.cur.imgs = (S.cur.imgs || []).filter(function (x) { return x !== id; });
+            Store.del('blobs', id); saveNow(true); renderAttach();
+          };
+          if (th) { th.classList.add('removing'); setTimeout(finish, 180); } else finish();
+        })();
         break;
       case 'view-img':
-        loadBlob(id).then(function (src) { if (src) { $('#viewerImg').src = src; $('#viewer').classList.remove('hidden'); } });
+        loadBlob(id).then(function (src) { if (src) { $('#viewerImg').src = src; $('#viewer').classList.add('show'); } });
         break;
       case 'view-src':
-        $('#viewerImg').src = el.src; $('#viewer').classList.remove('hidden');
+        $('#viewerImg').src = el.src; $('#viewer').classList.add('show');
         break;
-      case 'close-viewer': $('#viewer').classList.add('hidden'); $('#viewerImg').src = ''; break;
+      case 'close-viewer': $('#viewer').classList.remove('show'); $('#viewerImg').src = ''; break;
 
       case 'ins-person': insertAt('@'); break;
       case 'ins-place': insertAt('#'); break;
@@ -2630,7 +2667,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     if (mod && (ev.key === 's' || ev.key === 'S')) { ev.preventDefault(); flushSave(); status('已保存'); return; }
     if (ev.key === 'Escape') {
       if (!$('#flash').classList.contains('hidden')) { closeFlash(true); return; }
-      if (!$('#viewer').classList.contains('hidden')) { $('#viewer').classList.add('hidden'); return; }
+      if ($('#viewer').classList.contains('show')) { $('#viewer').classList.remove('show'); return; }
       if (!$('#sheet').classList.contains('hidden')) { closeSheet(); return; }
       if ($('#drawer').classList.contains('open')) { closeDrawer(); return; }
     }
