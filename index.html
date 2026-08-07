@@ -796,7 +796,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   'use strict';
 
   /* 版本号：改功能就改这里，设置页底部会显示，用来核对「本地版 / 线上版」是否一致 */
-  var APP_VER = 'v2.5';
+  var APP_VER = 'v2.6';
   window.__SHIGUANG_VER__ = APP_VER;
 
   /* ---------------- 基础工具 ---------------- */
@@ -2854,46 +2854,8 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       : name === 'sheet' ? $('#sheet') : name === 'drawer' ? $('#drawer') : null;
   }
 
-  var G_EDGE = 24, G_SWIPE = 56;
-  var g = null;
-  function gStart(ev) {
-    if (ev.touches && ev.touches.length !== 1) { g = null; return; }
-    var t = ev.touches ? ev.touches[0] : ev;
-    var x = t.clientX, tg = ev.target;
-    if (!tg || !tg.closest) return;
-    var layer = topLayer();
-    // 仅当浮层已打开、且从屏幕左边缘起手，才认领为「返回」手势
-    if (x <= G_EDGE && layer) g = { x0: x, y0: t.clientY, x: x, y: t.clientY, layer: layer, claimed: false };
-    else g = null;
-  }
-  function gMove(ev) {
-    if (!g || !ev.touches || !ev.touches.length) return;
-    var t = ev.touches[0];
-    g.x = t.clientX; g.y = t.clientY;
-    var dx = g.x - g.x0, dy = g.y - g.y0;
-    if (!g.claimed) {
-      if (Math.abs(dx) > 10 && dx > Math.abs(dy) * 1.4) { g.claimed = true; ev.preventDefault(); }
-      else return;
-    } else ev.preventDefault();
-    var el = layerEl(g.layer);
-    if (el) { el.classList.add('g-drag'); el.style.transform = 'translateX(' + Math.max(0, dx) + 'px)'; }
-  }
-  function gReset(el) { if (el) { el.classList.remove('g-drag'); el.style.transform = ''; } }
-  function gEnd() {
-    if (!g) return;
-    var dx = g.x - g.x0, layer = g.layer;
-    if (g.claimed && dx > G_SWIPE) {
-      if (layer === 'flash') closeFlash(true);
-      else if (layer === 'viewer') $('#viewer').classList.remove('show');
-      else if (layer === 'sheet') closeSheet();
-      else if (layer === 'drawer') closeDrawer();
-    } else gReset(layerEl(layer));
-    g = null;
-  }
-  document.addEventListener('touchstart', gStart, { passive: true });
-  document.addEventListener('touchmove', gMove, { passive: false });
-  document.addEventListener('touchend', gEnd);
-  document.addEventListener('touchcancel', gEnd);
+  // 全面屏手势已全部关闭：浮层一律用按钮 / 遮罩关闭（见各 close-* 动作处理），
+  // 不再监听任何 document 级 touch 滑动，避免误触。
 
   /* ---------------- 生命周期：切后台立即存 + 遮罩 + 重新上锁 ---------------- */
   function veilOn() { if (Cfg.lockOn || true) $('#veil').classList.remove('hidden'); }
@@ -2973,11 +2935,27 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
 
-  /* 离线支持：网络优先的 SW；绝不因为 SW 更新而自动 reload */
+  /* 离线支持：网络优先的 SW。
+     新版发布后，SW 会在后台安装并接管页面；接管瞬间触发 controllerchange，
+     此时自动刷新一次 —— 这样「联网了却还是老界面」的问题被根除。
+     首次获得控制权（安装后第一次 claim）跳过刷新，避免重载循环。 */
   if (navigator.serviceWorker && String(location.protocol).indexOf('http') === 0) {
+    try {
+      // controllerchange 在某些环境（或被桩对象）可能不存在，做防御性判断
+      if (typeof navigator.serviceWorker.addEventListener === 'function') {
+        var _hadCtrl = !!navigator.serviceWorker.controller;
+        navigator.serviceWorker.addEventListener('controllerchange', function () {
+          if (!_hadCtrl) { _hadCtrl = true; return; } // 首次 claim，页面本就是新的，跳过
+          // 文本有自动保存，刷新不会丢内容；新版即时生效。
+          window.location.reload();
+        });
+      }
+    } catch (e) { console.warn('[sw]', e); }
     window.addEventListener('load', function () {
       try {
-        navigator.serviceWorker.register('./sw.js').catch(function (e) { console.warn('[sw]', e); });
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+          .then(function (reg) { if (reg && reg.update) reg.update(); })
+          .catch(function (e) { console.warn('[sw]', e); });
       } catch (e) { console.warn('[sw]', e); }
     });
   }

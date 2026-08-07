@@ -11,7 +11,7 @@
  */
 // 每次发布必须 +1：缓存名变化会让 activate 阶段删掉所有旧缓存，
 // 已安装的 PWA 才会真正换成新版外壳（否则用户一直看到老版本）。
-const CACHE = 'diary-v5';
+const CACHE = 'diary-v6';
 const ASSETS = [
   './',
   './index.html',
