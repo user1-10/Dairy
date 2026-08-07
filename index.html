@@ -179,6 +179,21 @@ html[data-typewriter="off"] #editor{padding-bottom:24px}
 
 .locked-box{flex:1;min-height:0;overflow-y:auto;padding:0 22px 40px;-webkit-overflow-scrolling:touch}
 .locked-text{font-family:var(--diary-font);font-size:var(--diary-size);line-height:2.0;white-space:pre-wrap;word-break:break-word}
+
+/* 预览态：把正文按 mdRender 渲染（含内联图片），所见即所得 */
+#preview{
+  flex:1;min-height:0;width:100%;overflow-y:auto;
+  padding:0 22px calc(45vh) 22px;font-size:var(--diary-size);line-height:2.0;letter-spacing:.01em;
+  font-family:var(--diary-font);-webkit-overflow-scrolling:touch;white-space:pre-wrap;word-break:break-word;
+}
+.diary-bold #preview{font-weight:700}
+/* 内联图片：随图文流排布 */
+.inline-img{
+  display:block;max-width:100%;height:auto;margin:10px auto;border-radius:12px;
+  border:1px solid var(--line);background:var(--bg);box-shadow:0 1px 6px rgba(0,0,0,.06);
+}
+.read-body .inline-img,.locked-text .inline-img,.pr-body .inline-img{max-width:min(100%,560px)}
+.icon-btn.on{color:var(--accent);background:var(--accent-soft)}
 .locked-flag{
   display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);
   border:1px solid var(--line);border-radius:99px;padding:3px 10px;margin-bottom:14px
@@ -655,6 +670,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       </div>
       <textarea id="editor" spellcheck="false" autocapitalize="sentences"
         placeholder="今天……"></textarea>
+      <div id="preview" class="preview md hidden"></div>
       <div id="lockedBox" class="locked-box hidden"></div>
     </div>
   </main>
@@ -669,8 +685,11 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       <button class="icon-btn" data-act="font-panel" aria-label="文字样式">
         <svg viewBox="0 0 24 24"><path d="M5 5h14M12 5v14"/></svg>
       </button>
-      <button class="icon-btn" data-act="pick-image" aria-label="图片">
+      <button class="icon-btn" data-act="pick-image" aria-label="插入图片（光标处）">
         <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2.5"/><circle cx="8.5" cy="10" r="1.6"/><path d="M4 17l5-5 4 4 2.5-2.5L20 17"/></svg>
+      </button>
+      <button class="icon-btn" data-act="preview-toggle" aria-label="预览图文排版">
+        <svg viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
       </button>
       <button class="icon-btn" data-act="ins-person" aria-label="人物标签"><span class="glyph">@</span></button>
       <button class="icon-btn" data-act="ins-place" aria-label="地点标签"><span class="glyph">#</span></button>
@@ -775,6 +794,10 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
    ============================================================ */
 (function () {
   'use strict';
+
+  /* 版本号：改功能就改这里，设置页底部会显示，用来核对「本地版 / 线上版」是否一致 */
+  var APP_VER = 'v2.5';
+  window.__SHIGUANG_VER__ = APP_VER;
 
   /* ---------------- 基础工具 ---------------- */
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -965,6 +988,10 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 
   function mdRender(src) {
     var t = esc(src);
+    // 内联图片标记 [[img:ID]] → <img>，随后由 renderInlineImgs 异步填入真实图源
+    t = t.replace(/\[\[img:([a-z0-9]+)\]\]/gi, function (m, id) {
+      return '<img class="inline-img" data-img="' + id + '" alt="图片" src="">';
+    });
     t = t.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
       .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
       .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
@@ -980,6 +1007,16 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     t = t.replace(/\n/g, '<br>');
     t = t.replace(/<br>(<\/?(h1|h2|h3|ul|li|blockquote))/g, '$1');
     return t;
+  }
+  /* 把容器内 .inline-img[data-img] 的标记替换为真实图源（异步） */
+  function renderInlineImgs(root) {
+    if (!root || !root.querySelectorAll) return;
+    var els = root.querySelectorAll('.inline-img[data-img]');
+    Array.prototype.forEach.call(els, function (el) {
+      var id = el.getAttribute('data-img');
+      if (!id) return;
+      loadBlob(id).then(function (src) { if (src) el.src = src; }).catch(function () { });
+    });
   }
 
   var STOP = '的了是我在有和就不人都一个上也很到说要去你会着没有看好自己这那我们他们什么可以就是因为所以但是还是这个那个今天今日一下时候现在已经如果虽然然后并且以及为了不过其实真的感觉觉得知道时间一些这样那样非常特别可能应该需要开始结束然而于是而且以后之前之后一直还有我的你的他的她的它的对于关于通过或者以及than the and for with that this from have been will你 我 他';
@@ -1062,7 +1099,27 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       try { fr.readAsDataURL(file); } catch (e) { if (!done) { done = true; clearTimeout(timer); rej(e); } }
     });
   }
-  async function addImages(files) {
+  /* 从正文里提取所有内联图片 id（[[img:ID]] 标记） */
+  function inlineImgIds(text) {
+    var re = /\[\[img:([a-z0-9]+)\]\]/gi, out = [], m;
+    while ((m = re.exec(text || ''))) out.push(m[1]);
+    return out;
+  }
+  /* 在光标处插入若干内联图片标记 */
+  function insertImgTokens(ids) {
+    var ta = $('#editor'); if (!ta || ta.classList.contains('hidden')) return;
+    var s = (ta.selectionStart != null) ? ta.selectionStart : ta.value.length;
+    var tok = ids.map(function (id) { return '[[img:' + id + ']]'; }).join('  ');
+    var before = ta.value.slice(0, s), after = ta.value.slice(s);
+    var sp1 = (before && !/\s$/.test(before)) ? ' ' : '';
+    var sp2 = (after && !/^\s/.test(after)) ? ' ' : '';
+    ta.value = before + sp1 + tok + sp2 + after;
+    var pos = s + sp1.length + tok.length + sp2.length;
+    ta.selectionStart = ta.selectionEnd = pos;
+    try { ta.focus(); } catch (e) { }
+    scheduleSave(); typewriter();
+  }
+  async function addImages(files, inline) {
     if (!S.cur) return 0;
     // 防御性快照：调用方若传入 live FileList，await 之后长度可能被清零。
     var list = Array.prototype.slice.call(files || []);
@@ -1070,7 +1127,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     var room = MAX_IMGS - S.cur.imgs.length;
     if (room <= 0) { toast('最多 ' + MAX_IMGS + ' 张图片'); return 0; }
 
-    var added = 0, failed = 0, skipped = 0;
+    var added = 0, failed = 0, skipped = 0, addedIds = [];
     for (var i = 0; i < list.length; i++) {
       if (added >= room) { skipped = list.length - i; break; }
       var f = list[i];
@@ -1080,8 +1137,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
         if (!data) { failed++; continue; }
         var id = uid();
         await Store.put('blobs', { id: id, data: data });
-        S.cur.imgs.push(id);
-        added++;
+        S.cur.imgs.push(id); addedIds.push(id); added++;
         renderAttach();   // 增量刷新，多图时能看到逐张进入
       } catch (e) { failed++; console.error('[img]', e); }
     }
@@ -1089,7 +1145,8 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     await saveNow(true);
     renderAttach();
     if (added) {
-      var msg = added > 1 ? ('已添加 ' + added + ' 张图片') : '图片已附上';
+      if (inline && addedIds.length) { insertImgTokens(addedIds); saveNow(true); }
+      var msg = added > 1 ? ('已添加 ' + added + ' 张图片') : '图片已插入到光标处';
       if (failed) msg += '，' + failed + ' 张失败';
       if (skipped) msg += '，' + skipped + ' 张超出上限';
       toast(msg);
@@ -1210,6 +1267,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 
   /* ---------------- 编辑器 ---------------- */
   var saveTimer = null;
+  var previewMode = false;
 
   function ensureEntry(dateStr) {
     var e = null;
@@ -1259,6 +1317,10 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 
     var locked = isLocked(e);
     var ta = $('#editor'), box = $('#lockedBox');
+    // 复位预览态（openDay 会走到这里）
+    previewMode = false;
+    var pv = $('#preview'); if (pv) { pv.classList.add('hidden'); pv.innerHTML = ''; }
+    var strip = $('#attachStrip');
     if (locked) {
       ta.classList.add('hidden'); box.classList.remove('hidden');
       box.innerHTML =
@@ -1267,8 +1329,11 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
         renderAnnos(e) +
         '<textarea class="anno-add" id="annoInput" placeholder="现在的你想说点什么…"></textarea>' +
         '<div style="text-align:right"><button class="solid-btn" data-act="anno-save" data-id="' + e.id + '">写下批注</button></div>';
+      renderInlineImgs(box);
+      if (strip) strip.classList.add('hidden');   // 锁定时不展示可编辑的图集，避免重复/误删
     } else {
       box.classList.add('hidden'); ta.classList.remove('hidden');
+      if (strip) strip.classList.remove('hidden');
       box.innerHTML = '';   // 清除旧锁定态残留的批注按钮，避免隐藏容器内残留可点击元素被 querySelector 误命中
       if (ta.value !== (e.text || '')) ta.value = e.text || '';
       if (e.annos && e.annos.length) { /* 未锁定但已有批注：并入正文下方不显示，保持简洁 */ }
@@ -1531,7 +1596,11 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       (locked ? '<span></span>' : '<button class="txt-btn" data-act="edit-entry" data-id="' + e.id + '">继续写这天</button>') +
       '<button class="txt-btn danger" data-act="del-entry" data-id="' + e.id + '">删除</button></div>';
     openSheet(e.date, html);
+    var sb = $('#sheetBody'); if (sb) renderInlineImgs(sb);   // 正文内联图异步填源
+    // 底部图集只放「未内联」的图片，避免与正文里的内联图重复
+    var inlineSet = {}; inlineImgIds(e.text).forEach(function (x) { inlineSet[x] = 1; });
     (e.imgs || []).forEach(function (iid) {
+      if (inlineSet[iid]) return;
       loadBlob(iid).then(function (src) {
         var host = $('#readImgs'); if (host && src) {
           var im = document.createElement('img'); im.src = src; im.setAttribute('data-act', 'view-src'); host.appendChild(im);
@@ -1755,7 +1824,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       '</div>';
 
     h += '<div style="text-align:center;color:var(--muted);font-size:11.5px;line-height:1.8;padding:6px 0 20px">' +
-      '日记 · v2.3<br>字体、字号、加粗在编辑页右下「Aa」里设置<br>数据全部保存在这台设备上，不联网、不上传<br>建议每月导出一次备份</div>';
+      '日记 · ' + APP_VER + '<br>字体、字号、加粗在编辑页右下「Aa」里设置<br>图片可插入正文任意位置，实现图文混排<br>数据全部保存在这台设备上，不联网、不上传<br>建议每月导出一次备份</div>';
     openSheet('设置', h);
   }
 
@@ -1901,7 +1970,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
         h += '<section class="pr-e"><h2 class="pr-h">' + esc(exTitleText(e)) + '</h2>' +
           '<div class="pr-meta">' + esc(exMetaText(e)) + '</div>' +
           '<div class="pr-body md">' + mdRender(e.text || '') + '</div>';
-        (e.imgs || []).forEach(function (id) { if (map[id]) h += '<img class="pr-img" src="' + map[id] + '" alt="">'; });
+        (e.imgs || []).forEach(function (id) { if (map[id] && inlineImgIds(e.text).indexOf(id) < 0) h += '<img class="pr-img" src="' + map[id] + '" alt="">'; });
         (e.annos || []).forEach(function (a) {
           var dd = new Date(a.ts);
           h += '<div class="pr-anno"><b>' + dd.getFullYear() + '.' + pad(dd.getMonth() + 1) + '.' + pad(dd.getDate()) + ' 的批注</b>' + esc(a.text) + '</div>';
@@ -1912,6 +1981,10 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
 
       var root = $('#printRoot');
       if (!root) { root = document.createElement('div'); root.id = 'printRoot'; document.body.appendChild(root); }
+      // 把正文里的内联图标记替换为真实 dataURL（PDF 是静态打印，无法异步填源）
+      h = h.replace(/<img class="inline-img" data-img="([a-z0-9]+)"[^>]*>/gi, function (m, id) {
+        return map[id] ? '<img class="inline-img" src="' + map[id] + '" alt="">' : '';
+      });
       root.innerHTML = h;
       document.body.classList.add('printing');
       closeSheet();
@@ -2012,18 +2085,40 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     return '<w:p>' + (style ? '<w:pPr><w:pStyle w:val="' + style + '"/></w:pPr>' : '') + runs + '</w:p>';
   }
   /* 正文（含轻量 Markdown）→ 段落串 */
-  function wBody(text) {
+  var IMG_TOK_RE = /\[\[img:([a-z0-9]+)\]\]/i;
+  function wBody(text, onImg) {
     var lines = String(text || '').split('\n'), out = '';
     lines.forEach(function (ln) {
       var t = ln.replace(/\s+$/, '');
       if (!t) { out += '<w:p/>'; return; }
-      var m;
-      if ((m = /^###\s+(.+)$/.exec(t))) out += wP('DH3', wRuns(m[1]));
-      else if ((m = /^##\s+(.+)$/.exec(t))) out += wP('DH2', wRuns(m[1]));
-      else if ((m = /^#\s+(.+)$/.exec(t))) out += wP('DH2', wRuns(m[1]));
-      else if ((m = /^>\s?(.+)$/.exec(t))) out += wP('DQuote', wRuns(m[1]));
-      else if ((m = /^\s*[-*]\s+(.+)$/.exec(t))) out += wP('DList', wRuns('•　' + m[1]));
-      else out += wP('DText', wRuns(t));
+      // 拆分内联图片标记，逐段渲染文字 + 图片
+      var parts = t.split(/(\[\[img:[a-z0-9]+\]\])/i), hasTok = false, segs = [];
+      parts.forEach(function (p) {
+        if (/^\[\[img:[a-z0-9]+\]\]$/i.test(p)) { hasTok = true; if (onImg) segs.push({ img: p }); }
+        else if (p) segs.push({ text: p });
+      });
+      if (!hasTok) {
+        var m;
+        if ((m = /^###\s+(.+)$/.exec(t))) out += wP('DH3', wRuns(m[1]));
+        else if ((m = /^##\s+(.+)$/.exec(t))) out += wP('DH2', wRuns(m[1]));
+        else if ((m = /^#\s+(.+)$/.exec(t))) out += wP('DH2', wRuns(m[1]));
+        else if ((m = /^>\s?(.+)$/.exec(t))) out += wP('DQuote', wRuns(m[1]));
+        else if ((m = /^\s*[-*]\s+(.+)$/.exec(t))) out += wP('DList', wRuns('•　' + m[1]));
+        else out += wP('DText', wRuns(t));
+        return;
+      }
+      segs.forEach(function (s) {
+        if (s.img) { if (onImg) out += onImg(s.img); return; }
+        var tt = s.text.replace(/\s+/g, ' ').trim();
+        if (!tt) return;
+        var m;
+        if ((m = /^###\s+(.+)$/.exec(tt))) out += wP('DH3', wRuns(m[1]));
+        else if ((m = /^##\s+(.+)$/.exec(tt))) out += wP('DH2', wRuns(m[1]));
+        else if ((m = /^#\s+(.+)$/.exec(tt))) out += wP('DH2', wRuns(m[1]));
+        else if ((m = /^>\s?(.+)$/.exec(tt))) out += wP('DQuote', wRuns(m[1]));
+        else if ((m = /^\s*[-*]\s+(.+)$/.exec(tt))) out += wP('DList', wRuns('•　' + m[1]));
+        else out += wP('DText', wRuns(tt));
+      });
     });
     return out;
   }
@@ -2096,8 +2191,22 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
         body += wP('DTitle', '<w:r><w:t xml:space="preserve">' + xesc(exTitleText(e)) + '</w:t></w:r>');
         var mt = exMetaText(e);
         if (mt) body += wP('DMeta', '<w:r><w:t xml:space="preserve">' + xesc(mt) + '</w:t></w:r>');
-        body += wBody(e.text || '');
+        var inlineSet = {}; inlineImgIds(e.text).forEach(function (x) { inlineSet[x] = 1; });
+        // 内联图：在正文 token 处就地插入图片段落
+        body += wBody(e.text || '', function (tk) {
+          var id = (IMG_TOK_RE.exec(tk) || [])[1]; if (!id) return '';
+          var m = metas[id]; if (!m) return '';
+          if (!media[id]) {
+            var name = 'media/img' + imgIdx + '.' + m.ext;
+            media[id] = { rid: 'rId' + rid, name: name, data: b64bytes(m.b64) };
+            rels.push('<Relationship Id="rId' + rid + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="' + name + '"/>');
+            rid++; imgIdx++;
+          }
+          return wImage(media[id].rid, drawId++, emuFit(m.w, m.h, MAXW));
+        });
+        // 非内联图片：保持原有「文末图集」行为（兼容旧日记）
         (e.imgs || []).forEach(function (id) {
+          if (inlineSet[id]) return;
           var m = metas[id]; if (!m) return;
           if (!media[id]) {
             var name = 'media/img' + imgIdx + '.' + m.ext;
@@ -2483,14 +2592,28 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
         renderMoods(); saveNow(true); status('心情已记下');
         break;
 
-      case 'pick-image': $('#filePicker').click(); break;
+      case 'pick-image':
+        if (!S.cur) break;
+        if (isLocked(S.cur)) { toast('已封存，无法插入图片'); break; }
+        S._inlineNext = true;            // 让 filePicker 选择后走「内联插入」
+        $('#filePicker').click();
+        break;
+      case 'preview-toggle': togglePreview(); break;
       case 'del-img':
         if (!S.cur) break;
         (function () {
           var th = $('.attach-strip [data-img="' + id + '"]');
+          var escId = String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
           var finish = function () {
             S.cur.imgs = (S.cur.imgs || []).filter(function (x) { return x !== id; });
-            Store.del('blobs', id); saveNow(true); renderAttach();
+            // 同步清除正文里的 [[img:id]] 标记（编辑态从 textarea 取，阅读态从 e.text 取）
+            var ta = $('#editor');
+            if (ta && !ta.classList.contains('hidden')) {
+              ta.value = (ta.value || '').replace(new RegExp('\\[\\[img:' + escId + '\\]\\]', 'gi'), '');
+            } else {
+              S.cur.text = (S.cur.text || '').replace(new RegExp('\\[\\[img:' + escId + '\\]\\]', 'gi'), '');
+            }
+            Store.del('blobs', id); saveNow(true); renderEditor();
           };
           if (th) { th.classList.add('removing'); setTimeout(finish, 180); } else finish();
         })();
@@ -2666,6 +2789,27 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     if (ta && !ta.classList.contains('hidden')) { try { ta.focus(); } catch (e) { } }
   }
 
+  /* 编辑 / 预览 切换：预览态把正文按 mdRender 渲染（含内联图片），实现「所见即所得」的图文混排 */
+  function togglePreview() {
+    var ta = $('#editor'), pv = $('#preview'), strip = $('#attachStrip');
+    if (!ta || !pv || ta.classList.contains('hidden')) return; // 锁定态无预览
+    previewMode = !previewMode;
+    if (previewMode) {
+      ta.classList.add('hidden');
+      pv.innerHTML = mdRender(ta.value || '');
+      renderInlineImgs(pv);
+      pv.classList.remove('hidden');
+      if (strip) strip.classList.add('hidden');
+      var btn = $('.icon-btn[data-act="preview-toggle"]'); if (btn) btn.classList.add('on');
+    } else {
+      pv.classList.add('hidden'); pv.innerHTML = '';
+      ta.classList.remove('hidden');
+      if (strip) strip.classList.remove('hidden');
+      try { ta.focus(); } catch (e) { }
+      var btn2 = $('.icon-btn[data-act="preview-toggle"]'); if (btn2) btn2.classList.remove('on');
+    }
+  }
+
   /* ---------------- 键盘快捷键（桌面/外接键盘） ---------------- */
   document.addEventListener('keydown', function (ev) {
     var mod = ev.metaKey || ev.ctrlKey;
@@ -2673,6 +2817,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     if (mod && (ev.key === 'k' || ev.key === 'K')) { ev.preventDefault(); openSearch(); return; }
     if (mod && (ev.key === 's' || ev.key === 'S')) { ev.preventDefault(); flushSave(); status('已保存'); return; }
     if (ev.key === 'Escape') {
+      if (previewMode) { togglePreview(); return; }
       if (!$('#flash').classList.contains('hidden')) { closeFlash(true); return; }
       if ($('#viewer').classList.contains('show')) { $('#viewer').classList.remove('show'); return; }
       if (!$('#sheet').classList.contains('hidden')) { closeSheet(); return; }
@@ -2681,24 +2826,11 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     if (!$('#flash').classList.contains('hidden') && mod && ev.key === 'Enter') { ev.preventDefault(); closeFlash(true); }
   });
 
-  /* ---------------- 全面屏手势（iOS 风格） ----------------
-     1) 左边缘右滑：返回/关闭最上层浮层（flash > viewer > sheet > drawer）
-     2) 阅读页顶部下拉：关闭 sheet
-     3) 主屏编辑区左右滑：切换上一天 / 下一天
-     4) 图片查看器左右滑：切换上一张 / 下一张
+  /* ---------------- 左边缘右滑返回（全局只保留这一个手势） ----------------
+     在任意浮层（flash > viewer > sheet > drawer）左边缘（x≤24px）右滑：关闭最上层。
+     不再做「阅读页下拉 / 主屏左右滑切日 / 查看器左右滑切图」，避免误触。
   */
   var curViewer = { ids: [], idx: 0 };
-
-  function shiftDay(delta) {
-    if (!S.curDate) return;
-    var base = parseYmd(S.curDate);
-    base.setDate(base.getDate() + delta);
-    var ds = ymd(base);
-    if (ds > ymd(new Date())) return; // 不跳到未来
-    openDay(ds);
-    var p = $('#paper');
-    if (p) { p.classList.remove('enter'); void p.offsetWidth; p.classList.add('enter'); }
-  }
 
   function openViewer(id) {
     var e = S.cur; if (!e || !e.imgs || !e.imgs.length) return;
@@ -2707,18 +2839,6 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     if (curViewer.idx < 0) curViewer.idx = 0;
     $('#viewer').classList.add('show'); // 先开查看器，图片异步加载完后填入（避免点击后空白延迟）
     loadBlob(id).then(function (src) { if (src) $('#viewerImg').src = src; });
-  }
-  function viewerStep(dir) {
-    if (!curViewer.ids.length) return;
-    var n = curViewer.idx + dir;
-    if (n < 0 || n >= curViewer.ids.length) {
-      var img = $('#viewerImg');           // 到头：轻微回弹，不切换
-      if (img) { img.classList.add('g-drag'); img.style.transform = 'translateX(' + (dir < 0 ? -16 : 16) + 'px)';
-        setTimeout(function () { img.classList.remove('g-drag'); img.style.transform = ''; }, 180); }
-      return;
-    }
-    curViewer.idx = n;
-    loadBlob(curViewer.ids[n]).then(function (src) { if (src) $('#viewerImg').src = src; });
   }
 
   // 顶层浮层优先级
@@ -2734,27 +2854,17 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       : name === 'sheet' ? $('#sheet') : name === 'drawer' ? $('#drawer') : null;
   }
 
-  var G_EDGE = 24, G_SWIPE = 56, G_VER = 72;
+  var G_EDGE = 24, G_SWIPE = 56;
   var g = null;
   function gStart(ev) {
     if (ev.touches && ev.touches.length !== 1) { g = null; return; }
     var t = ev.touches ? ev.touches[0] : ev;
-    var x = t.clientX, y = t.clientY, tg = ev.target;
+    var x = t.clientX, tg = ev.target;
     if (!tg || !tg.closest) return;
-    if (tg.closest('.attach-strip')) { g = null; return; } // 让位给图片长按拖拽排序
-    var layer = topLayer(), m = null;
-    if (x <= G_EDGE && layer) m = 'back';
-    else if (layer === 'sheet') {
-      if (tg.closest('.sheet') && $('#sheetBody').scrollTop <= 0 && y < 170) m = 'sheet-down';
-      else { g = null; return; }
-    }
-    else if (layer === 'viewer') m = 'viewer';
-    else if (!layer && tg.closest('.stage')) {
-      var ed = tg.closest('#editor');
-      if (ed && ed.selectionStart !== ed.selectionEnd) { g = null; return; } // 正在框选文字
-      m = 'day';
-    } else { g = null; return; }
-    g = { x0: x, y0: y, x: x, y: y, layer: layer, mode: m, claimed: false };
+    var layer = topLayer();
+    // 仅当浮层已打开、且从屏幕左边缘起手，才认领为「返回」手势
+    if (x <= G_EDGE && layer) g = { x0: x, y0: t.clientY, x: x, y: t.clientY, layer: layer, claimed: false };
+    else g = null;
   }
   function gMove(ev) {
     if (!g || !ev.touches || !ev.touches.length) return;
@@ -2762,46 +2872,22 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     g.x = t.clientX; g.y = t.clientY;
     var dx = g.x - g.x0, dy = g.y - g.y0;
     if (!g.claimed) {
-      if (g.mode === 'back' || g.mode === 'day' || g.mode === 'viewer') {
-        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.4) { g.claimed = true; ev.preventDefault(); }
-      } else if (g.mode === 'sheet-down') {
-        if (dy > 10 && dy > Math.abs(dx) * 1.4) { g.claimed = true; ev.preventDefault(); }
-      }
-      if (!g.claimed) return;
+      if (Math.abs(dx) > 10 && dx > Math.abs(dy) * 1.4) { g.claimed = true; ev.preventDefault(); }
+      else return;
     } else ev.preventDefault();
-    var el = null;
-    if (g.mode === 'back' && (g.layer === 'sheet' || g.layer === 'viewer')) el = layerEl(g.layer);
-    else if (g.mode === 'day') el = $('#paper');
-    else if (g.mode === 'viewer') el = $('#viewerImg');
-    else if (g.mode === 'sheet-down') el = $('#sheet');
-    if (!el) return;
-    el.classList.add('g-drag');
-    if (g.mode === 'back') el.style.transform = 'translateX(' + Math.max(0, dx) + 'px)';
-    else if (g.mode === 'sheet-down') el.style.transform = 'translateY(' + Math.max(0, dy) + 'px)';
-    else el.style.transform = 'translateX(' + dx + 'px)';
+    var el = layerEl(g.layer);
+    if (el) { el.classList.add('g-drag'); el.style.transform = 'translateX(' + Math.max(0, dx) + 'px)'; }
   }
   function gReset(el) { if (el) { el.classList.remove('g-drag'); el.style.transform = ''; } }
   function gEnd() {
     if (!g) return;
-    var dx = g.x - g.x0, dy = g.y - g.y0, mode = g.mode, layer = g.layer;
-    if (mode === 'back') {
-      if (g.claimed && dx > G_SWIPE) {
-        if (layer === 'flash') closeFlash(true);
-        else if (layer === 'viewer') $('#viewer').classList.remove('show');
-        else if (layer === 'sheet') closeSheet();
-        else if (layer === 'drawer') closeDrawer();
-      } else gReset(layerEl(layer));
-    } else if (mode === 'day') {
-      var p = $('#paper'); gReset(p);
-      if (g.claimed && Math.abs(dx) > G_SWIPE) shiftDay(dx < 0 ? 1 : -1); // 左滑=下一天，右滑=上一天
-    } else if (mode === 'viewer') {
-      var img = $('#viewerImg'); gReset(img);
-      if (g.claimed && Math.abs(dx) > G_SWIPE) viewerStep(dx < 0 ? 1 : -1);
-    } else if (mode === 'sheet-down') {
-      var s = $('#sheet');
-      if (g.claimed && dy > G_VER) closeSheet();
-      else gReset(s);
-    }
+    var dx = g.x - g.x0, layer = g.layer;
+    if (g.claimed && dx > G_SWIPE) {
+      if (layer === 'flash') closeFlash(true);
+      else if (layer === 'viewer') $('#viewer').classList.remove('show');
+      else if (layer === 'sheet') closeSheet();
+      else if (layer === 'drawer') closeDrawer();
+    } else gReset(layerEl(layer));
     g = null;
   }
   document.addEventListener('touchstart', gStart, { passive: true });
@@ -2841,7 +2927,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       for (var i = 0; i < items.length; i++) {
         if (items[i].kind === 'file' && /^image\//.test(items[i].type)) { var f = items[i].getAsFile(); if (f) files.push(f); }
       }
-      if (files.length) { e.preventDefault(); addImages(files); }
+      if (files.length) { e.preventDefault(); addImages(files, true); }   // 粘贴图片→插入光标处
     });
     initThumbDrag();
     var fp = $('#filePicker');
@@ -2850,8 +2936,9 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
       // 关键：FileList 是实时引用，必须先快照成数组，再清空 input，
       // 否则 addImages 在 await 让出控制权后 files.length 会变 0，只存下第一张。
       var list = Array.prototype.slice.call(fp.files);
+      var inline = S._inlineNext; S._inlineNext = false;
       fp.value = '';
-      addImages(list);
+      addImages(list, inline);
     });
   }
 
@@ -2904,7 +2991,7 @@ html[data-theme="dark"] .heat i.l3{background:#569457}
     openInsight: openInsight, openGoals: openGoals, openSettings: openSettings, openRead: openRead,
     openFlash: openFlash, closeFlash: closeFlash, bottle: bottle, showLock: showLock, submitPin: submitPin,
     hashPin: hashPin, openDrawer: openDrawer, refreshSide: refreshSide,
-    shiftDay: shiftDay, openViewer: openViewer, viewerStep: viewerStep, topLayer: topLayer,
+    openViewer: openViewer, topLayer: topLayer,
     curViewer: curViewer
   };
 })();

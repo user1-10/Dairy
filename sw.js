@@ -9,7 +9,9 @@
  *
  * 效果：首次联网加载后自动缓存；之后断网 / GitHub 被墙，仍可完全离线使用。
  */
-const CACHE = 'diary-v1';
+// 每次发布必须 +1：缓存名变化会让 activate 阶段删掉所有旧缓存，
+// 已安装的 PWA 才会真正换成新版外壳（否则用户一直看到老版本）。
+const CACHE = 'diary-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -46,6 +48,8 @@ self.addEventListener('fetch', function (e) {
   if (req.method !== 'GET') return;
   var url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // 只处理同源资源
+  // sw.js 自身永不走缓存，否则版本更新可能被自己的旧缓存挡住
+  if (/\/sw\.js$/.test(url.pathname)) return;
 
   // 导航请求：网络优先 + 离线回退
   if (req.mode === 'navigate') {
